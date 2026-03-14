@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Admin - Deposit Requests</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, sans-serif; }
+        body { background: #f4f7f6; color: #333; }
+        .header-section {
+            background: #00a651; color: white; padding: 15px;
+            position: sticky; top: 0; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        .header-left { display: flex; align-items: center; gap: 15px; }
+        .header-top i { cursor: pointer; font-size: 20px; }
+        .header-top b { font-size: 18px; letter-spacing: 0.5px; }
+        .refresh-btn { font-size: 18px; cursor: pointer; padding: 5px; }
+        .search-box {
+            background: rgba(255,255,255,0.2); border-radius: 12px;
+            display: flex; align-items: center; padding: 10px 15px;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .search-box input {
+            background: none; border: none; color: white; width: 100%;
+            outline: none; margin-left: 10px; font-size: 14px;
+        }
+        .search-box input::placeholder { color: rgba(255,255,255,0.7); }
+        .container { padding: 15px; }
+        .request-card {
+            background: white; border-radius: 16px; padding: 16px; margin-bottom: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05); position: relative;
+            border-left: 6px solid #00a651; transition: 0.3s;
+        }
+        .card-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
+        .amount { font-size: 22px; font-weight: 800; color: #00a651; }
+        .method-tag { 
+            background: #e8f5e9; color: #00a651; padding: 4px 10px; 
+            border-radius: 8px; font-size: 11px; font-weight: bold; text-transform: uppercase;
+        }
+        .info-grid { display: grid; grid-template-columns: 1fr; gap: 8px; font-size: 13px; color: #555; }
+        .info-item { display: flex; align-items: center; gap: 8px; }
+        .info-item i { color: #888; width: 15px; }
+        .admin-num { color: #e67e22; font-weight: 600; }
+        .copy-btn {
+            background: #f0f0f0; border: none; padding: 2px 8px; 
+            border-radius: 5px; font-size: 10px; cursor: pointer; 
+            color: #555; margin-left: 5px; border: 1px solid #ddd;
+        }
+        .copy-btn:active { background: #e0e0e0; }
+        .actions { display: flex; gap: 10px; margin-top: 15px; padding-top: 12px; border-top: 1px solid #eee; }
+        .btn {
+            flex: 1; border: none; padding: 12px; border-radius: 10px;
+            font-weight: bold; font-size: 14px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+            transition: 0.2s;
+        }
+        .btn-approve { background: #00a651; color: white; }
+        .btn-reject { background: #feebeb; color: #e74c3c; }
+        .btn:active { transform: scale(0.95); }
+        #loading { text-align: center; margin-top: 50px; color: #00a651; }
+        .swipe-out { transform: translateX(100%); opacity: 0; }
+
+        /* New In-App Alert Design */
+        #inAppAlert {
+            position: fixed; top: -100px; left: 50%; transform: translateX(-50%);
+            width: 90%; background: #fff; padding: 15px; border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); z-index: 9999;
+            display: flex; align-items: center; gap: 12px;
+            border-bottom: 4px solid #00a651; transition: 0.5s ease-in-out;
+        }
+        #inAppAlert.show { top: 20px; }
+        .alert-icon { background: #00a651; color: #fff; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    </style>
+</head>
+<body>
+
+<div id="inAppAlert">
+    <div class="alert-icon"><i class="fa-solid fa-bell"></i></div>
+    <div style="flex:1">
+        <b style="font-size: 14px; display: block;">New Deposit Request!</b>
+        <span id="alertMsg" style="font-size: 12px; color: #666;">Someone sent a request.</span>
+    </div>
+</div>
+
+<div class="header-section">
+    <div class="header-top">
+        <div class="header-left">
+            <i class="fa-solid fa-house" onclick="window.location.href='deposit-dashboard.html'"></i>
+            <b>Pending Deposits</b>
+        </div>
+        <i class="fa-solid fa-rotate-right refresh-btn" onclick="location.reload()"></i>
+    </div>
+    <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="searchInput" placeholder="Phone বা TrxID দিয়ে সার্চ করুন..." onkeyup="filterRequests()">
+    </div>
+</div>
+
+<div class="container" id="requestList">
+    <div id="loading">
+        <i class="fa-solid fa-circle-notch fa-spin fa-2x"></i>
+        <p style="margin-top: 10px; font-size: 14px;">লোড হচ্ছে...</p>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, query, where, onSnapshot, doc, getDocs, getDoc, runTransaction, updateDoc, serverTimestamp, orderBy, increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyD-XRUDILxlkOQk4bbpkajLFaRmCVeMxEk",
+        authDomain: "test-54fa2.firebaseapp.com",
+        projectId: "test-54fa2",
+        appId: "1:496937911936:web:5f48c8712f58f2e26fc865"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    let masterData = [];
+    let isFirstLoad = true;
+    const notificationSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+
+    function triggerAlert(amount, method) {
+        // Play Sound
+        notificationSound.play().catch(e => console.log("Sound error: ", e));
+        
+        // Vibrate Phone (If supported)
+        if (navigator.vibrate) {
+            navigator.vibrate([200, 100, 200]);
+        }
+
+        // Show In-App Banner
+        const alertBox = document.getElementById('inAppAlert');
+        document.getElementById('alertMsg').innerText = `Amount: ৳${amount} via ${method}`;
+        alertBox.classList.add('show');
+        
+        setTimeout(() => {
+            alertBox.classList.remove('show');
+        }, 5000);
+
+        // Also try Browser Notification
+        if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("New Deposit Request!", {
+                body: `Amount: ৳${amount} via ${method}`,
+                icon: "https://cdn-icons-png.flaticon.com/512/2933/2933116.png"
+            });
+        }
+    }
+
+    // Permission request on first touch
+    document.body.addEventListener('click', () => {
+        if ("Notification" in window && Notification.permission === "default") {
+            Notification.requestPermission();
+        }
+    }, { once: true });
+
+    window.copyTrx = (txt) => {
+        navigator.clipboard.writeText(txt).then(() => alert("TrxID Copied: " + txt));
+    };
+
+    const q = query(
+        collection(db, "depositRequests"), 
+        where("status", "==", "pending")
+    );
+
+    onSnapshot(q, (snapshot) => {
+        const loadingElement = document.getElementById('loading');
+        if(loadingElement) loadingElement.style.display = 'none';
+
+        if (!isFirstLoad) {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added") {
+                    const newData = change.doc.data();
+                    triggerAlert(newData.amount, newData.method);
+                }
+            });
+        }
+        
+        masterData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        masterData.sort((a, b) => {
+            const timeA = a.submittedAt ? a.submittedAt.toMillis() : 0;
+            const timeB = b.submittedAt ? b.submittedAt.toMillis() : 0;
+            return timeB - timeA;
+        });
+
+        render(masterData);
+        isFirstLoad = false;
+    }, (error) => {
+        console.error("Firebase Error: ", error);
+    });
+
+    function render(data) {
+        const container = document.getElementById('requestList');
+        container.innerHTML = data.length === 0 ? '<p style="text-align:center; color:#999; margin-top:50px;">কোনো রিকোয়েস্ট নেই</p>' : "";
+        
+        data.forEach(item => {
+            const time = item.submittedAt ? item.submittedAt.toDate().toLocaleString('en-BD', {hour: '2-digit', minute:'2-digit', hour12:true}) : "Just now";
+            const card = document.createElement('div');
+            card.className = 'request-card';
+            card.id = `card-${item.id}`;
+            card.innerHTML = `
+                <div class="card-header">
+                    <span class="amount">৳${item.amount}</span>
+                    <span class="method-tag">${item.method}</span>
+                </div>
+                <div class="info-grid">
+                    <div class="info-item"><i class="fa-solid fa-user"></i> <b>User:</b> ${item.userPhone}</div>
+                    <div class="info-item"><i class="fa-solid fa-paper-plane"></i> <b>To Admin:</b> <span class="admin-num">${item.adminNumber || 'N/A'}</span></div>
+                    <div class="info-item">
+                        <i class="fa-solid fa-fingerprint"></i> <b>TrxID:</b> ${item.transactionId} 
+                        <button class="copy-btn" onclick="copyTrx('${item.transactionId}')">Copy</button>
+                    </div>
+                    <div class="info-item"><i class="fa-regular fa-clock"></i> ${time}</div>
+                </div>
+                <div class="actions">
+                    <button class="btn btn-reject" onclick="processAction('${item.id}', '${item.userId}', ${item.amount}, 'rejected')">
+                        <i class="fa-solid fa-xmark"></i> Reject
+                    </button>
+                    <button class="btn btn-approve" onclick="processAction('${item.id}', '${item.userId}', ${item.amount}, 'success')">
+                        <i class="fa-solid fa-check"></i> Approve
+                    </button>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    window.filterRequests = () => {
+        const val = document.getElementById('searchInput').value.toLowerCase();
+        render(masterData.filter(i => i.userPhone.includes(val) || i.transactionId.toLowerCase().includes(val)));
+    };
+
+    window.processAction = async (reqId, userId, amount, status) => {
+        const card = document.getElementById(`card-${reqId}`);
+        if(!confirm(`Are you sure you want to ${status}?`)) return;
+
+        try {
+            if (status === 'success') {
+                const uSnap = await getDoc(doc(db, "users", userId));
+                if (!uSnap.exists()) throw "User not found!";
+                const userData = uSnap.data();
+                const depositAmount = Number(amount);
+
+                let refererDocId = null;
+                let bonus = 0;
+
+                const commSnap = await getDoc(doc(db, "settings", "commissions"));
+                const commRate = commSnap.exists() ? (Number(commSnap.data().depositComm) || 0) : 0;
+
+                if (userData.referBy && commRate > 0) {
+                    bonus = (depositAmount * commRate) / 100;
+                    const rQuery = query(collection(db, "users"), where("myReferCode", "==", userData.referBy));
+                    const rSnap = await getDocs(rQuery);
+                    if (!rSnap.empty) {
+                        refererDocId = rSnap.docs[0].id;
+                    }
+                }
+
+                await runTransaction(db, async (tx) => {
+                    tx.update(doc(db, "users", userId), { 
+                        balance: increment(depositAmount),
+                        status: "active"
+                    });
+
+                    if (refererDocId && bonus > 0) {
+                        tx.update(doc(db, "users", refererDocId), {
+                            pendingCommission: increment(bonus)
+                        });
+                    }
+
+                    tx.update(doc(db, "depositRequests", reqId), { 
+                        status: 'success', 
+                        processedAt: serverTimestamp() 
+                    });
+                });
+
+            } else {
+                await updateDoc(doc(db, "depositRequests", reqId), { 
+                    status: 'rejected', 
+                    processedAt: serverTimestamp() 
+                });
+            }
+
+            card.classList.add('swipe-out');
+            setTimeout(() => card.remove(), 300);
+
+        } catch (e) {
+            console.error(e);
+            alert("Action failed: " + e.message);
+        }
+    };
+</script>
+
+</body>
+</html>
